@@ -6,14 +6,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/mchetelat/bazo_client/client"
-	"github.com/mchetelat/bazo_miner/p2p"
-	"github.com/mchetelat/bazo_miner/protocol"
+	"github.com/bazo-blockchain/bazo-client/client"
+	"github.com/bazo-blockchain/bazo-miner/p2p"
+	"github.com/bazo-blockchain/bazo-miner/protocol"
 	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"crypto/ecdsa"
+	"crypto/rand"
+	"bytes"
 )
 
 var (
@@ -22,6 +25,10 @@ var (
 )
 
 func main() {
+	if len(os.Args) != 2 {
+		log.Fatal("Usage bazo-multisig <keyfile>")
+	}
+
 	logger = log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
 
 	listener()
@@ -68,17 +75,18 @@ func serve(c net.Conn) {
 }
 
 func processTx(fundsTx *protocol.FundsTx) {
-	//if fundsTx.Header != [32]byte{} {
 	balance, err := reqBalance(fundsTx.From)
 	if err != nil {
 	}
 
 	if checkSolvency(fundsTx.From, fundsTx.Amount, balance) {
 		fundsTxs[fundsTx.Header] = fundsTx
+
 		multisignTx(fundsTx)
-		//sendTx()
+		sendTx(fundsTx, )
+
+		delete(fundsTxs, fundsTx.Header)
 	}
-	//}
 }
 
 func checkSolvency(pubKeyHash [32]byte, amount uint64, balance uint64) bool {
@@ -115,11 +123,31 @@ func reqBalance(pubKeyHash [32]byte) (uint64, error) {
 }
 
 func multisignTx(fundsTx *protocol.FundsTx) {
+	_, privKey, _ := client.ExtractKeyFromFile(os.Args[2])
 
+	txHash := fundsTx.Hash()
+	r, s, _ := ecdsa.Sign(rand.Reader, &privKey, txHash[:])
+
+	copy(fundsTx.Sig2[32-len(r.Bytes()):32], r.Bytes())
+	copy(fundsTx.Sig2[64-len(s.Bytes()):], s.Bytes())
 }
 
-func sendTx(fundsTx *protocol.FundsTx) {
+func sendTx(fundsTx *protocol.FundsTx) error {
+	jsonData := map[string]string{"firstname": "Nic", "lastname": "Raboy"}
+	jsonValue, _ := json.Marshal(jsonData)
 
+	txHash := fundsTx.Hash()
+	response, err := http.Post("http://127.0.0.1:8001/sendFundsTx/" + hex.EncodeToString(txHash[:]) + "/" + hex.EncodeToString(fundsTx.Sig2[:]), "application/json", bytes.NewBuffer(jsonValue))
+	if err != nil {
+		return errors.New(fmt.Sprintf("The HTTP request failed with error %s\n", err))
+	}
+
+	data, _ := ioutil.ReadAll(response.Body)
+	fmt.Println(data)
+	//var acc client.Account
+	//json.Unmarshal([]byte(data), &acc)
+
+	return nil
 }
 
 func rcvData(c net.Conn) (header *p2p.Header, payload []byte, err error) {
