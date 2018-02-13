@@ -1,11 +1,14 @@
 package main
 
 import (
-	"bufio"
+	"bytes"
+	"crypto/ecdsa"
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/bazo-blockchain/bazo-client/REST"
 	"github.com/bazo-blockchain/bazo-client/client"
 	"github.com/bazo-blockchain/bazo-miner/p2p"
 	"github.com/bazo-blockchain/bazo-miner/protocol"
@@ -14,14 +17,11 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"crypto/ecdsa"
-	"crypto/rand"
-	"bytes"
 )
 
 var (
-	logger   *log.Logger
-	fundsTxs = make(map[[32]byte]*protocol.FundsTx)
+	logger *log.Logger
+	openTx = make(map[[32]byte]*protocol.FundsTx)
 )
 
 func main() {
@@ -52,7 +52,7 @@ func listener() {
 }
 
 func serve(c net.Conn) {
-	header, payload, err := rcvData(c)
+	header, payload, err := client.RcvData(c)
 	if err != nil {
 		logger.Printf("Failed to handle incoming connection: %v\n", err)
 		return
@@ -74,98 +74,78 @@ func serve(c net.Conn) {
 	c.Close()
 }
 
-func processTx(fundsTx *protocol.FundsTx) {
-	balance, err := reqBalance(fundsTx.From)
+func processTx(tx *protocol.FundsTx) {
+	acc, err := reqAccount(tx.From)
 	if err != nil {
 	}
 
-	if checkSolvency(fundsTx.From, fundsTx.Amount, balance) {
-		fundsTxs[fundsTx.Header] = fundsTx
+	if checkSolvency(tx.From, tx.Amount, acc) {
+		openTx[tx.Hash()] = tx
 
-		multisignTx(fundsTx)
-		sendTx(fundsTx, )
+		signTx(tx)
 
-		delete(fundsTxs, fundsTx.Header)
+		sendTx(tx)
 	}
 }
 
-func checkSolvency(pubKeyHash [32]byte, amount uint64, balance uint64) bool {
+func checkSolvency(pubKeyHash [32]byte, amount uint64, acc client.Account) bool {
 	solvent := false
-	tmpBalance := balance
+	tmpBalance := acc.Balance
 
-	for _, fundsTx := range fundsTxs {
-		if fundsTx.From == pubKeyHash {
-			tmpBalance -= fundsTx.Amount
-		}
-		if fundsTx.To == pubKeyHash {
-			tmpBalance += fundsTx.Amount
+	if !acc.IsRoot {
+		for _, fundsTx := range openTx {
+			if fundsTx.From == pubKeyHash {
+				tmpBalance -= fundsTx.Amount
+			}
+			if fundsTx.To == pubKeyHash {
+				tmpBalance += fundsTx.Amount
+			}
 		}
 	}
 
-	if tmpBalance >= amount {
+	if tmpBalance >= amount || acc.IsRoot {
 		solvent = true
 	}
 
 	return solvent
 }
 
-func reqBalance(pubKeyHash [32]byte) (uint64, error) {
+func reqAccount(pubKeyHash [32]byte) (acc client.Account, err error) {
 	response, err := http.Get("http://127.0.0.1:8001/account/" + hex.EncodeToString(pubKeyHash[:]))
 	if err != nil {
-		return 0, errors.New(fmt.Sprintf("The HTTP request failed with error %s\n", err))
+		return acc, errors.New(fmt.Sprintf("The HTTP request failed with error %s\n", err))
 	}
 
 	data, _ := ioutil.ReadAll(response.Body)
-	var acc client.Account
 	json.Unmarshal([]byte(data), &acc)
 
-	return acc.Balance, nil
+	return acc, nil
 }
 
-func multisignTx(fundsTx *protocol.FundsTx) {
-	_, privKey, _ := client.ExtractKeyFromFile(os.Args[2])
+func signTx(tx *protocol.FundsTx) {
+	_, privKey, _ := client.ExtractKeyFromFile(os.Args[1])
 
-	txHash := fundsTx.Hash()
+	txHash := tx.Hash()
 	r, s, _ := ecdsa.Sign(rand.Reader, &privKey, txHash[:])
 
-	copy(fundsTx.Sig2[32-len(r.Bytes()):32], r.Bytes())
-	copy(fundsTx.Sig2[64-len(s.Bytes()):], s.Bytes())
+	copy(tx.Sig2[32-len(r.Bytes()):32], r.Bytes())
+	copy(tx.Sig2[64-len(s.Bytes()):], s.Bytes())
 }
 
-func sendTx(fundsTx *protocol.FundsTx) error {
-	jsonData := map[string]string{"firstname": "Nic", "lastname": "Raboy"}
-	jsonValue, _ := json.Marshal(jsonData)
+func sendTx(tx *protocol.FundsTx) error {
+	var jsonResponse REST.JsonResponse
+	jsonValue, _ := json.Marshal(jsonResponse)
 
-	txHash := fundsTx.Hash()
-	response, err := http.Post("http://127.0.0.1:8001/sendFundsTx/" + hex.EncodeToString(txHash[:]) + "/" + hex.EncodeToString(fundsTx.Sig2[:]), "application/json", bytes.NewBuffer(jsonValue))
+	txHash := tx.Hash()
+	response, err := http.Post("http://127.0.0.1:8001/sendFundsTx/"+hex.EncodeToString(txHash[:])+"/"+hex.EncodeToString(tx.Sig2[:]), "application/json", bytes.NewBuffer(jsonValue))
 	if err != nil {
 		return errors.New(fmt.Sprintf("The HTTP request failed with error %s\n", err))
 	}
 
 	data, _ := ioutil.ReadAll(response.Body)
-	fmt.Println(data)
-	//var acc client.Account
-	//json.Unmarshal([]byte(data), &acc)
+	json.Unmarshal([]byte(data), &jsonResponse)
+
+	fmt.Printf("%v\n", jsonResponse)
 
 	return nil
-}
-
-func rcvData(c net.Conn) (header *p2p.Header, payload []byte, err error) {
-	reader := bufio.NewReader(c)
-	header, err = p2p.ReadHeader(reader)
-	if err != nil {
-		c.Close()
-		return nil, nil, errors.New(fmt.Sprintf("Connection to aborted: (%v)\n", err))
-	}
-	payload = make([]byte, header.Len)
-
-	for cnt := 0; cnt < int(header.Len); cnt++ {
-		payload[cnt], err = reader.ReadByte()
-		if err != nil {
-			c.Close()
-			return nil, nil, errors.New(fmt.Sprintf("Connection to aborted: %v\n", err))
-		}
-	}
-
-	return header, payload, nil
 }
