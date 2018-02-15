@@ -12,6 +12,7 @@ import (
 	"github.com/bazo-blockchain/bazo-client/client"
 	"github.com/bazo-blockchain/bazo-miner/p2p"
 	"github.com/bazo-blockchain/bazo-miner/protocol"
+	"github.com/bazo-blockchain/bazo-miner/storage"
 	"io/ioutil"
 	"log"
 	"net"
@@ -111,7 +112,7 @@ func checkSolvency(pubKeyHash [32]byte, amount uint64, acc client.Account) bool 
 }
 
 func reqAccount(pubKeyHash [32]byte) (acc client.Account, err error) {
-	response, err := http.Get("http://127.0.0.1:8001/account/" + hex.EncodeToString(pubKeyHash[:]))
+	response, err := http.Get("http://" + client.LIGHT_CLIENT_SERVER + "/account/" + hex.EncodeToString(pubKeyHash[:]))
 	if err != nil {
 		return acc, errors.New(fmt.Sprintf("The HTTP request failed with error %s\n", err))
 	}
@@ -123,7 +124,7 @@ func reqAccount(pubKeyHash [32]byte) (acc client.Account, err error) {
 }
 
 func signTx(tx *protocol.FundsTx) {
-	_, privKey, _ := client.ExtractKeyFromFile(os.Args[1])
+	_, privKey, _ := storage.ExtractKeyFromFile(os.Args[1])
 
 	txHash := tx.Hash()
 	r, s, _ := ecdsa.Sign(rand.Reader, &privKey, txHash[:])
@@ -137,7 +138,7 @@ func sendTx(tx *protocol.FundsTx) error {
 	jsonValue, _ := json.Marshal(jsonResponse)
 
 	txHash := tx.Hash()
-	response, err := http.Post("http://127.0.0.1:8001/sendFundsTx/"+hex.EncodeToString(txHash[:])+"/"+hex.EncodeToString(tx.Sig2[:]), "application/json", bytes.NewBuffer(jsonValue))
+	response, err := http.Post("http://"+client.LIGHT_CLIENT_SERVER+"/sendFundsTx/"+hex.EncodeToString(txHash[:])+"/"+hex.EncodeToString(tx.Sig2[:]), "application/json", bytes.NewBuffer(jsonValue))
 	if err != nil {
 		return errors.New(fmt.Sprintf("The HTTP request failed with error %s\n", err))
 	}
