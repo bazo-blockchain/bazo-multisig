@@ -30,7 +30,7 @@ func main() {
 		log.Fatal("Usage bazo-multisig <keyfile>")
 	}
 
-	logger = log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
+	logger = storage.InitLogger()
 
 	listener()
 }
