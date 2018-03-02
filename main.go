@@ -137,9 +137,15 @@ func reqAccount(addressHash [32]byte) (acc *client.Account, err error) {
 	}
 
 	data, _ := ioutil.ReadAll(response.Body)
-	json.Unmarshal([]byte(data), &acc)
 
-	if !acc.IsCreated {
+	var contents []REST.Content
+	content := REST.Content{"account", &acc}
+	contents = append(contents, content)
+
+	jsonResponse := REST.JsonResponse{Content: contents}
+	json.Unmarshal([]byte(data), &jsonResponse)
+
+	if acc == nil || !acc.IsCreated {
 		return nil, errors.New(fmt.Sprintf("Account %x not found", addressHash[:8]))
 	}
 
