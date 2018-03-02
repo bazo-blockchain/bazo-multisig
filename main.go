@@ -133,7 +133,7 @@ func processTx(tx *protocol.FundsTx) (err error) {
 
 	openTxs[tx.To] = tx
 
-	if checkSolvency(tx, acc) {
+	if verify(tx, acc) {
 		if err := signTx(tx); err != nil {
 			return err
 		}
@@ -146,33 +146,37 @@ func processTx(tx *protocol.FundsTx) (err error) {
 	return nil
 }
 
-func checkSolvency(tx *protocol.FundsTx, acc *client.Account) bool {
+func verify(tx *protocol.FundsTx, acc *client.Account) bool {
+	if acc.IsRoot {
+		return true
+	}
+
 	//Use signed int, since otherwise it might happen that a negative balance will become positive
 	var tmpBalance int64
-
-	solvent := false
 	tmpBalance = int64(acc.Balance)
 
-	if !acc.IsRoot {
-		for _, openTx := range openTxs {
-			if openTx.Sig2 != [64]byte{} {
-				if openTx.From == tx.From {
-					tmpBalance -= int64(tx.Amount)
-				}
-				if openTx.To == tx.From {
-					tmpBalance += int64(tx.Amount)
-				}
+	for _, openTx := range openTxs {
+		if openTx.Sig2 != [64]byte{} {
+			if openTx.From == tx.From {
+				tmpBalance -= int64(tx.Amount)
+			}
+			if openTx.To == tx.From {
+				tmpBalance += int64(tx.Amount)
 			}
 		}
 	}
 
-	if tmpBalance >= int64(tx.Amount)+int64(tx.Fee) || acc.IsRoot {
-		solvent = true
-	} else {
-		logger.Printf("Account %x is not solvent\n", tx.From[:8])
+	if acc.TxCnt != tx.TxCnt {
+		logger.Printf("Sender txCnt does not match: %v (tx.txCnt) vs. %v (state txCnt)", tx.TxCnt, acc.TxCnt)
+		return false
 	}
 
-	return solvent
+	if tmpBalance < int64(tx.Amount)+int64(tx.Fee) {
+		logger.Printf("Account %x is not solvent\n", tx.From[:8])
+		return false
+	}
+
+	return true
 }
 
 func reqAccount(addressHash [32]byte) (acc *client.Account, err error) {
