@@ -15,6 +15,7 @@ import (
 	"github.com/bazo-blockchain/bazo-miner/storage"
 	"io/ioutil"
 	"log"
+	"math/big"
 	"net"
 	"net/http"
 	"os"
@@ -82,21 +83,22 @@ func serve(c net.Conn) {
 	}
 
 	if header.TypeID == p2p.FUNDSTX_BRDCST {
+		var err error
 		var tx *protocol.FundsTx
 
 		if tx = tx.Decode(payload); tx == nil {
-			c.Close()
-			return
+			err = errors.New("Tx decoding failed.")
 		}
 
 		txHash := tx.Hash()
-		if err := processTx(tx); err != nil {
-			logger.Printf("Processing tx %x failed: %v", txHash[:8], err)
-			c.Close()
-			return
-		}
+		err = processTx(tx)
 
 		packet := p2p.BuildPacket(p2p.TX_BRDCST_ACK, nil)
+
+		if err != nil {
+			packet = p2p.BuildPacket(p2p.NOT_FOUND, []byte(fmt.Sprintf("Processing tx %x failed: %v", txHash[:8], err)))
+		}
+
 		c.Write(packet)
 	} else if header.TypeID == p2p.RECEIVEDTX_BRDCST {
 		index := 0
@@ -133,7 +135,7 @@ func processTx(tx *protocol.FundsTx) (err error) {
 
 	openTxs[tx.To] = tx
 
-	if verify(tx, acc) {
+	if err := verify(tx, acc); err == nil {
 		if err := signTx(tx); err != nil {
 			return err
 		}
@@ -141,42 +143,65 @@ func processTx(tx *protocol.FundsTx) (err error) {
 		if err := sendTx(tx); err != nil {
 			return err
 		}
+	} else {
+		return err
 	}
 
 	return nil
 }
 
-func verify(tx *protocol.FundsTx, acc *client.Account) bool {
-	if acc.IsRoot {
-		return true
-	}
+func verify(tx *protocol.FundsTx, acc *client.Account) error {
+	if !acc.IsRoot {
 
-	//Use signed int, since otherwise it might happen that a negative balance will become positive
-	var tmpBalance int64
-	tmpBalance = int64(acc.Balance)
+		//Use signed int, since otherwise it might happen that a negative balance will become positive
+		var tmpBalance int64
+		tmpBalance = int64(acc.Balance)
 
-	for _, openTx := range openTxs {
-		if openTx.Sig2 != [64]byte{} {
-			if openTx.From == tx.From {
-				tmpBalance -= int64(tx.Amount)
+		for _, openTx := range openTxs {
+			if openTx.Sig2 != [64]byte{} {
+				if openTx.From == tx.From {
+					tmpBalance -= int64(tx.Amount)
+				}
+				if openTx.To == tx.From {
+					tmpBalance += int64(tx.Amount)
+				}
 			}
-			if openTx.To == tx.From {
-				tmpBalance += int64(tx.Amount)
-			}
+		}
+
+		if acc.TxCnt != tx.TxCnt {
+			return errors.New(fmt.Sprintf("Sender txCnt does not match: %v (tx.txCnt) vs. %v (state txCnt).", tx.TxCnt, acc.TxCnt))
+		}
+
+		if tmpBalance < int64(tx.Amount)+int64(tx.Fee) {
+			return errors.New(fmt.Sprintf("Account %x is not solvent.\n", tx.From[:8]))
+		}
+
+		if err := verifySig1(acc, tx); err != nil {
+			return errors.New(fmt.Sprintf("Sender's signature (Sig1) failed.\n"))
 		}
 	}
 
-	if acc.TxCnt != tx.TxCnt {
-		logger.Printf("Sender txCnt does not match: %v (tx.txCnt) vs. %v (state txCnt)", tx.TxCnt, acc.TxCnt)
-		return false
+	return nil
+}
+
+func verifySig1(acc *client.Account, tx *protocol.FundsTx) error {
+	runes := []rune(acc.AddressString)
+	pub1 := string(runes[:64])
+	pub2 := string(runes[64:])
+
+	pubKey, _ := storage.GetPubKeyFromString(pub1, pub2)
+
+	r, s := new(big.Int), new(big.Int)
+	r.SetBytes(tx.Sig1[:32])
+	s.SetBytes(tx.Sig1[32:])
+
+	txHash := tx.Hash()
+
+	if !ecdsa.Verify(&pubKey, txHash[:], r, s) {
+		return errors.New("Tx verification failed.")
 	}
 
-	if tmpBalance < int64(tx.Amount)+int64(tx.Fee) {
-		logger.Printf("Account %x is not solvent\n", tx.From[:8])
-		return false
-	}
-
-	return true
+	return nil
 }
 
 func reqAccount(addressHash [32]byte) (acc *client.Account, err error) {
