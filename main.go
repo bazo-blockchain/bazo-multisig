@@ -18,6 +18,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"time"
 )
 
 var (
@@ -32,7 +33,25 @@ func main() {
 
 	logger = storage.InitLogger()
 
+	go openTxStatus()
+
 	listener()
+}
+
+func openTxStatus() {
+	for {
+		if len(openTxs) == 0 {
+			logger.Println("No open txs")
+		} else {
+			logger.Println("Open txs:")
+		}
+		for to, tx := range openTxs {
+			fmt.Printf("%x: %x\n", to[:8], tx.Sig2[:8])
+		}
+		fmt.Println()
+
+		time.Sleep(10 * time.Second)
+	}
 }
 
 func listener() {
@@ -70,13 +89,37 @@ func serve(c net.Conn) {
 			return
 		}
 
-		packet := p2p.BuildPacket(p2p.TX_BRDCST_ACK, nil)
-		c.Write(packet)
-
 		txHash := tx.Hash()
 		if err := processTx(tx); err != nil {
 			logger.Printf("Processing tx %x failed: %v", txHash[:8], err)
+			c.Close()
+			return
 		}
+
+		packet := p2p.BuildPacket(p2p.TX_BRDCST_ACK, nil)
+		c.Write(packet)
+	} else if header.TypeID == p2p.RECEIVEDTX_BRDCST {
+		index := 0
+		cnt := 1
+
+		for len(payload) >= cnt*protocol.FUNDSTX_SIZE {
+			var receivedFundsTx *protocol.FundsTx
+			receivedFundsTx = receivedFundsTx.Decode(payload[index : index+protocol.FUNDSTX_SIZE])
+
+			delete(openTxs, receivedFundsTx.To)
+
+			index += protocol.FUNDSTX_SIZE
+			cnt++
+		}
+
+		packet := p2p.BuildPacket(p2p.TX_BRDCST_ACK, nil)
+		c.Write(packet)
+	} else if header.TypeID == p2p.FUNDSTX_REQ {
+		var to [32]byte
+		copy(to[:], payload[:32])
+
+		packet := p2p.BuildPacket(p2p.FUNDSTX_RES, openTxs[to].Encode())
+		c.Write(packet)
 	}
 
 	c.Close()
@@ -88,9 +131,9 @@ func processTx(tx *protocol.FundsTx) (err error) {
 		return err
 	}
 
-	if checkSolvency(tx, acc) {
-		openTxs[tx.Hash()] = tx
+	openTxs[tx.To] = tx
 
+	if checkSolvency(tx, acc) {
 		if err := signTx(tx); err != nil {
 			return err
 		}
@@ -112,11 +155,13 @@ func checkSolvency(tx *protocol.FundsTx, acc *client.Account) bool {
 
 	if !acc.IsRoot {
 		for _, openTx := range openTxs {
-			if openTx.From == tx.From {
-				tmpBalance -= int64(tx.Amount)
-			}
-			if openTx.To == tx.From {
-				tmpBalance += int64(tx.Amount)
+			if openTx.Sig2 != [64]byte{} {
+				if openTx.From == tx.From {
+					tmpBalance -= int64(tx.Amount)
+				}
+				if openTx.To == tx.From {
+					tmpBalance += int64(tx.Amount)
+				}
 			}
 		}
 	}
