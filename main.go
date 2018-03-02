@@ -124,7 +124,7 @@ func checkSolvency(tx *protocol.FundsTx, acc *client.Account) bool {
 	if tmpBalance >= int64(tx.Amount)+int64(tx.Fee) || acc.IsRoot {
 		solvent = true
 	} else {
-		logger.Printf("Account %x is not solvent", tx.From[:8])
+		logger.Printf("Account %x is not solvent\n", tx.From[:8])
 	}
 
 	return solvent
