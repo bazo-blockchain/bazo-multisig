@@ -23,8 +23,8 @@ import (
 )
 
 var (
-	logger  *log.Logger
-	openTxs = make(map[[32]byte]*protocol.FundsTx)
+	logger         *log.Logger
+	nonVerifiedTxs = make(map[[32]byte]*protocol.FundsTx)
 )
 
 func main() {
@@ -34,19 +34,19 @@ func main() {
 
 	logger = storage.InitLogger()
 
-	go openTxStatus()
+	go nonVerifiedTxStatus()
 
 	listener()
 }
 
-func openTxStatus() {
+func nonVerifiedTxStatus() {
 	for {
-		if len(openTxs) == 0 {
-			logger.Println("No open txs")
+		if len(nonVerifiedTxs) == 0 {
+			logger.Println("No non verified transactions.")
 		} else {
-			logger.Println("Open txs:")
+			logger.Println("Non verified transactions:")
 		}
-		for to, tx := range openTxs {
+		for to, tx := range nonVerifiedTxs {
 			fmt.Printf("%x: %x\n", to[:8], tx.Sig2[:8])
 		}
 		fmt.Println()
@@ -105,7 +105,7 @@ func serve(c net.Conn) {
 			var verifiedTx *protocol.FundsTx
 			verifiedTx = verifiedTx.Decode(data)
 
-			delete(openTxs, verifiedTx.Hash())
+			delete(nonVerifiedTxs, verifiedTx.Hash())
 		}
 
 		packet := p2p.BuildPacket(p2p.TX_BRDCST_ACK, nil)
@@ -116,7 +116,7 @@ func serve(c net.Conn) {
 
 		var nonVerifiedTxs [][]byte
 
-		for _, tx := range openTxs {
+		for _, tx := range nonVerifiedTxs {
 			if tx.To == to {
 				nonVerifiedTxs = append(nonVerifiedTxs, tx.Encode()[:])
 			}
@@ -135,7 +135,7 @@ func processTx(tx *protocol.FundsTx) (err error) {
 		return err
 	}
 
-	openTxs[tx.Hash()] = tx
+	nonVerifiedTxs[tx.Hash()] = tx
 
 	if err := verify(tx, acc); err == nil {
 		if err := signTx(tx); err != nil {
@@ -159,12 +159,12 @@ func verify(tx *protocol.FundsTx, acc *client.Account) error {
 		var tmpBalance int64
 		tmpBalance = int64(acc.Balance)
 
-		for _, openTx := range openTxs {
-			if openTx.Sig2 != [64]byte{} {
-				if openTx.From == tx.From {
+		for _, nonVerifiedTx := range nonVerifiedTxs {
+			if nonVerifiedTx.Sig2 != [64]byte{} {
+				if nonVerifiedTx.From == tx.From {
 					tmpBalance -= int64(tx.Amount)
 				}
-				if openTx.To == tx.From {
+				if nonVerifiedTx.To == tx.From {
 					tmpBalance += int64(tx.Amount)
 				}
 			}
