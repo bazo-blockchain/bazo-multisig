@@ -114,15 +114,15 @@ func serve(c net.Conn) {
 		var to [32]byte
 		copy(to[:], payload[:32])
 
-		var nonVerifiedTxs [][]byte
+		var nonVerifiedTxsTo [][]byte
 
 		for _, tx := range nonVerifiedTxs {
 			if tx.To == to {
-				nonVerifiedTxs = append(nonVerifiedTxs, tx.Encode()[:])
+				nonVerifiedTxsTo = append(nonVerifiedTxsTo, tx.Encode()[:])
 			}
 		}
 
-		packet := p2p.BuildPacket(p2p.FUNDSTX_RES, protocol.Encode(nonVerifiedTxs, protocol.FUNDSTX_SIZE))
+		packet := p2p.BuildPacket(p2p.FUNDSTX_RES, protocol.Encode(nonVerifiedTxsTo, protocol.FUNDSTX_SIZE))
 		c.Write(packet)
 	}
 
