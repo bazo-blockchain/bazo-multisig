@@ -75,7 +75,7 @@ func listener() {
 }
 
 func serve(c net.Conn) {
-	header, payload, err := client.RcvData(c)
+	header, payload, err := p2p.RcvData(c)
 	if err != nil {
 		logger.Printf("Failed to handle incoming connection: %v\n", err)
 		c.Close()
@@ -100,18 +100,12 @@ func serve(c net.Conn) {
 		}
 
 		c.Write(packet)
-	} else if header.TypeID == p2p.RECEIVEDTX_BRDCST {
-		index := 0
-		cnt := 1
+	} else if header.TypeID == p2p.VERIFIEDTX_BRDCST {
+		for _, data := range protocol.Decode(payload, protocol.FUNDSTX_SIZE) {
+			var verifiedTx *protocol.FundsTx
+			verifiedTx = verifiedTx.Decode(data)
 
-		for len(payload) >= cnt*protocol.FUNDSTX_SIZE {
-			var receivedFundsTx *protocol.FundsTx
-			receivedFundsTx = receivedFundsTx.Decode(payload[index : index+protocol.FUNDSTX_SIZE])
-
-			delete(openTxs, receivedFundsTx.To)
-
-			index += protocol.FUNDSTX_SIZE
-			cnt++
+			delete(openTxs, verifiedTx.Hash())
 		}
 
 		packet := p2p.BuildPacket(p2p.TX_BRDCST_ACK, nil)
@@ -120,7 +114,15 @@ func serve(c net.Conn) {
 		var to [32]byte
 		copy(to[:], payload[:32])
 
-		packet := p2p.BuildPacket(p2p.FUNDSTX_RES, openTxs[to].Encode())
+		var nonVerifiedTxs [][]byte
+
+		for _, tx := range openTxs {
+			if tx.To == to {
+				nonVerifiedTxs = append(nonVerifiedTxs, tx.Encode()[:])
+			}
+		}
+
+		packet := p2p.BuildPacket(p2p.FUNDSTX_RES, protocol.Encode(nonVerifiedTxs, protocol.FUNDSTX_SIZE))
 		c.Write(packet)
 	}
 
@@ -133,7 +135,7 @@ func processTx(tx *protocol.FundsTx) (err error) {
 		return err
 	}
 
-	openTxs[tx.To] = tx
+	openTxs[tx.Hash()] = tx
 
 	if err := verify(tx, acc); err == nil {
 		if err := signTx(tx); err != nil {
@@ -173,11 +175,11 @@ func verify(tx *protocol.FundsTx, acc *client.Account) error {
 		}
 
 		if tmpBalance < int64(tx.Amount)+int64(tx.Fee) {
-			return errors.New(fmt.Sprintf("Account %x is not solvent.\n", tx.From[:8]))
+			return errors.New(fmt.Sprintf("Not enough balance: %v (tx.amount) vs. %v (state balance).", tx.Amount, acc.Balance))
 		}
 
 		if err := verifySig1(acc, tx); err != nil {
-			return errors.New(fmt.Sprintf("Sender's signature (Sig1) failed.\n"))
+			return errors.New(fmt.Sprintf("Sender's signature (Sig1) failed."))
 		}
 	}
 
