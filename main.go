@@ -111,13 +111,13 @@ func serve(c net.Conn) {
 		packet := p2p.BuildPacket(p2p.TX_BRDCST_ACK, nil)
 		c.Write(packet)
 	} else if header.TypeID == p2p.FUNDSTX_REQ {
-		var to [32]byte
-		copy(to[:], payload[:32])
+		var addressHash [32]byte
+		copy(addressHash[:], payload[:32])
 
 		var nonVerifiedTxsTo [][]byte
 
 		for _, tx := range nonVerifiedTxs {
-			if tx.To == to {
+			if tx.Sig2 != [64]byte{} && (tx.From == addressHash || tx.To == addressHash) {
 				nonVerifiedTxsTo = append(nonVerifiedTxsTo, tx.Encode()[:])
 			}
 		}
