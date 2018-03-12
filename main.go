@@ -135,17 +135,25 @@ func processTx(tx *protocol.FundsTx) (err error) {
 		return err
 	}
 
-	nonVerifiedTxs[tx.Hash()] = tx
-
 	if err := verify(tx, acc); err == nil {
 		if err := signTx(tx); err != nil {
 			return err
 		}
 
+		for _, nonVerifiedTx := range nonVerifiedTxs {
+			if nonVerifiedTx.To == tx.To && nonVerifiedTx.Sig2 == [64]byte{} {
+				delete(nonVerifiedTxs, nonVerifiedTx.Hash())
+			}
+		}
+
+		nonVerifiedTxs[tx.Hash()] = tx
+
 		if err := sendTx(tx); err != nil {
 			return err
 		}
 	} else {
+		nonVerifiedTxs[tx.Hash()] = tx
+
 		return err
 	}
 
