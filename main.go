@@ -85,6 +85,7 @@ func serve(c net.Conn) {
 	if header.TypeID == p2p.FUNDSTX_BRDCST {
 		var err error
 		var tx *protocol.FundsTx
+		var packet []byte
 
 		if tx = tx.Decode(payload); tx == nil {
 			err = errors.New("Tx decoding failed.")
@@ -93,10 +94,11 @@ func serve(c net.Conn) {
 		txHash := tx.Hash()
 		err = processTx(tx)
 
-		packet := p2p.BuildPacket(p2p.TX_BRDCST_ACK, nil)
-
 		if err != nil {
+			logger.Printf("Processing tx %x failed: %v", txHash[:8], err)
 			packet = p2p.BuildPacket(p2p.NOT_FOUND, []byte(fmt.Sprintf("Processing tx %x failed: %v", txHash[:8], err)))
+		} else {
+			packet = p2p.BuildPacket(p2p.TX_BRDCST_ACK, nil)
 		}
 
 		c.Write(packet)
