@@ -66,7 +66,7 @@ func listener() {
 	for {
 		c, err := listener.Accept()
 		if err != nil {
-			logger.Println(err)
+			logger.Print(err)
 			continue
 		}
 
