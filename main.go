@@ -29,7 +29,7 @@ var (
 
 func main() {
 	if len(os.Args) != 2 {
-		log.Fatal("Usage bazo-multisig <keyfile>")
+		log.Fatal("Usage bazo-multisig <multisig>")
 	}
 
 	logger = storage.InitLogger()
