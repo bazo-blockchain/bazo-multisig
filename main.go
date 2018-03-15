@@ -219,7 +219,7 @@ func verifySig1(acc *client.Account, tx *protocol.FundsTx) error {
 func reqAccount(addressHash [32]byte) (acc *client.Account, err error) {
 	response, err := http.Get("http://" + client.LIGHT_CLIENT_SERVER + "/account/" + hex.EncodeToString(addressHash[:]))
 	if err != nil {
-		return nil, errors.New(fmt.Sprintf("The HTTP request failed with error %s", err))
+		return nil, errors.New(fmt.Sprintf("The HTTP request failed with error %v", err))
 	}
 
 	data, _ := ioutil.ReadAll(response.Body)
@@ -260,14 +260,14 @@ func sendTx(tx *protocol.FundsTx) error {
 	txHash := tx.Hash()
 	response, err := http.Post("http://"+client.LIGHT_CLIENT_SERVER+"/sendFundsTx/"+hex.EncodeToString(txHash[:])+"/"+hex.EncodeToString(tx.Sig2[:]), "application/json", bytes.NewBuffer(jsonValue))
 	if err != nil {
-		return errors.New(fmt.Sprintf("The HTTP request failed with error %s", err))
+		return errors.New(fmt.Sprintf("The HTTP request failed with error %v", err))
 	}
 
 	data, _ := ioutil.ReadAll(response.Body)
 	json.Unmarshal([]byte(data), &jsonResponse)
 
 	if jsonResponse.Code != 200 {
-		return errors.New(fmt.Sprintf("Could not send tx. Error code: %s", jsonResponse.Code))
+		return errors.New(fmt.Sprintf("Could not send tx. Error code: %v", jsonResponse.Code))
 	}
 
 	return nil
