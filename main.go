@@ -26,8 +26,8 @@ var (
 	logger         *log.Logger
 	nonVerifiedTxs = make(map[[32]byte]*protocol.FundsTx)
 
-	MULTISIGIPPORT = "127.0.0.1:8020"
-	CLIENTIPPORT = "127.0.0.1:8010"
+	MULTISIGIPPORT = "52.166.182.201:8020"
+	CLIENTIPPORT = "52.166.182.201:8010"
 )
 
 func main() {
