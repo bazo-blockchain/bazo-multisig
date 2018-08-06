@@ -25,6 +25,9 @@ import (
 var (
 	logger         *log.Logger
 	nonVerifiedTxs = make(map[[32]byte]*protocol.FundsTx)
+
+	MULTISIGIPPORT = "127.0.0.1:8020"
+	CLIENTIPPORT = "127.0.0.1:8010"
 )
 
 func main() {
@@ -33,6 +36,7 @@ func main() {
 	}
 
 	logger = storage.InitLogger()
+	p2p.InitLogging()
 
 	go nonVerifiedTxStatus()
 
@@ -56,11 +60,11 @@ func nonVerifiedTxStatus() {
 }
 
 func listener() {
-	listener, err := net.Listen("tcp", client.MULTISIG_SERVER_PORT)
+	listener, err := net.Listen("tcp", MULTISIGIPPORT)
 	if err != nil {
 		logger.Fatal(err)
 	} else {
-		logger.Printf("Listening on port %v", client.MULTISIG_SERVER_PORT)
+		logger.Printf("Listening on port %v", MULTISIGIPPORT)
 	}
 
 	for {
@@ -75,7 +79,7 @@ func listener() {
 }
 
 func serve(c net.Conn) {
-	header, payload, err := p2p.RcvData(c)
+	header, payload, err := p2p.RcvData_(c)
 	if err != nil {
 		logger.Printf("Failed to handle incoming connection: %v\n", err)
 		c.Close()
@@ -217,7 +221,7 @@ func verifySig1(acc *client.Account, tx *protocol.FundsTx) error {
 }
 
 func reqAccount(addressHash [32]byte) (acc *client.Account, err error) {
-	response, err := http.Get("http://" + client.LIGHT_CLIENT_SERVER + "/account/" + hex.EncodeToString(addressHash[:]))
+	response, err := http.Get("http://" + CLIENTIPPORT + "/account/" + hex.EncodeToString(addressHash[:]))
 	if err != nil {
 		return nil, errors.New(fmt.Sprintf("The HTTP request failed with error %v", err))
 	}
@@ -258,7 +262,7 @@ func sendTx(tx *protocol.FundsTx) error {
 	jsonValue, _ := json.Marshal(jsonResponse)
 
 	txHash := tx.Hash()
-	response, err := http.Post("http://"+client.LIGHT_CLIENT_SERVER+"/sendFundsTx/"+hex.EncodeToString(txHash[:])+"/"+hex.EncodeToString(tx.Sig2[:]), "application/json", bytes.NewBuffer(jsonValue))
+	response, err := http.Post("http://"+CLIENTIPPORT+"/sendFundsTx/"+hex.EncodeToString(txHash[:])+"/"+hex.EncodeToString(tx.Sig2[:]), "application/json", bytes.NewBuffer(jsonValue))
 	if err != nil {
 		return errors.New(fmt.Sprintf("The HTTP request failed with error %v", err))
 	}
