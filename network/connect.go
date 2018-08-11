@@ -20,6 +20,7 @@ var (
 
 func Init() {
 	logger = utils.InitLogger()
+	p2p.InitLogging()
 	peers.minerConns = make(map[*peer]bool)
 
 	go peerService()

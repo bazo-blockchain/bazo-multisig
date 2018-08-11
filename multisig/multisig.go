@@ -30,7 +30,6 @@ var (
 )
 
 func Init() {
-	p2p.InitLogging()
 	logger = utils.InitLogger()
 
 	go nonVerifiedTxStatus()
