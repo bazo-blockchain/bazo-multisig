@@ -16,7 +16,9 @@ func processIncomingMsg(p *peer, header *p2p.Header, payload []byte) {
 	//BROADCAST
 	case p2p.VERIFIEDTX_BRDCST:
 		verifiedTxsBrdcst(p, payload)
+
 		//RESULTS
 	case p2p.NEIGHBOR_RES:
+		processNeighborRes(p, payload)
 	}
 }
