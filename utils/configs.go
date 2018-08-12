@@ -10,7 +10,7 @@ const (
 	CONFIGURATION_FILE = "configuration.json"
 
 	HEALTH_CHECK_INTERVAL = 30 //Sec
-	MIN_MINERS            = 2
+	MIN_MINERS            = 1
 )
 
 var (
